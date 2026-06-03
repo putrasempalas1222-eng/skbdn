@@ -11,22 +11,72 @@ import fetch from 'node-fetch';
 import rateLimit from 'express-rate-limit';
 import { WebSocketServer, WebSocket } from 'ws';
 import nodemailer from 'nodemailer';
+import admin from 'firebase-admin';
 
 const app = express();
 app.use(express.json({limit: process?.env?.API_PAYLOAD_MAX_SIZE || "7mb"}));
 
-const PORT = process?.env?.API_BACKEND_PORT || 5000;
-const API_BACKEND_HOST = process?.env?.API_BACKEND_HOST || "127.0.0.1";
+const PORT = process?.env?.PORT || process?.env?.API_BACKEND_PORT || 5000;
+const API_BACKEND_HOST = process?.env?.API_BACKEND_HOST || "0.0.0.0";
 
 const GOOGLE_CLOUD_LOCATION = process?.env?.GOOGLE_CLOUD_LOCATION;
 const GOOGLE_CLOUD_PROJECT = process?.env?.GOOGLE_CLOUD_PROJECT;
 const PROXY_HEADER = process?.env?.PROXY_HEADER;
+const FIREBASE_DATABASE_URL = process?.env?.FIREBASE_DATABASE_URL || "https://play-integrity-2adpr7x4a8xhyex-default-rtdb.firebaseio.com";
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || "https://skbdn.vercel.app,http://localhost:5173,http://127.0.0.1:5173")
+  .split(",")
+  .map(origin => origin.trim())
+  .filter(Boolean);
 const isGoogleProxyConfigured = Boolean(GOOGLE_CLOUD_PROJECT && GOOGLE_CLOUD_LOCATION && PROXY_HEADER);
 if (!isGoogleProxyConfigured) {
   console.warn("Warning: GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, or PROXY_HEADER is missing. Vertex proxy routes will be disabled, email routes can still run.");
 }
 
 app.set('trust proxy', 1 /* number of proxies between user and server */);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-App-Proxy");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+app.get("/healthz", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "AKSES-SKBDN",
+    firebase_admin: isFirebaseAdminReady,
+    vertex_proxy: isGoogleProxyConfigured
+  });
+});
+
+let isFirebaseAdminReady = false;
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+      databaseURL: FIREBASE_DATABASE_URL,
+    });
+    isFirebaseAdminReady = true;
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      databaseURL: FIREBASE_DATABASE_URL,
+    });
+    isFirebaseAdminReady = true;
+  } else {
+    console.warn("Warning: Firebase Admin is not configured. Buyer Auth deletion endpoint will be disabled.");
+  }
+} catch (error) {
+  console.warn("Warning: Firebase Admin failed to initialize:", error?.message || error);
+}
 
 // IMPORTANT: Vertex AI Studio Rate Limiting
 // This rate limiting configuration protects your backend APIs from abuse.
@@ -56,19 +106,123 @@ const emailLimiter = rateLimit({
 });
 
 function getMailTransporter() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const host = process.env.SMTP_HOST || process.env.SMTP_SERVER_HOST;
+  const port = Number(process.env.SMTP_PORT || process.env.SMTP_SERVER_PORT || 587);
+  const user = process.env.SMTP_USER || process.env.SMTP_ACCOUNT_USERNAME;
+  const pass = process.env.SMTP_PASS || process.env.SMTP_ACCOUNT_PASSWORD;
+  const securityMode = (process.env.SMTP_SECURE || process.env.SMTP_SECURITY_MODE || '').toLowerCase();
 
   if (!host || !user || !pass) return null;
 
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: port === 465 || securityMode === 'ssl',
     auth: { user, pass },
   });
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function getEmailAccent(title = '') {
+  const normalizedTitle = title.toLowerCase();
+  if (normalizedTitle.includes('tolak') || normalizedTitle.includes('gagal')) {
+    return { color: '#ea4335', soft: '#fce8e6', label: 'Perlu Revisi' };
+  }
+  if (normalizedTitle.includes('setuju') || normalizedTitle.includes('verified') || normalizedTitle.includes('berhasil')) {
+    return { color: '#34a853', soft: '#e6f4ea', label: 'Disetujui' };
+  }
+  if (normalizedTitle.includes('keuangan')) {
+    return { color: '#fbbc04', soft: '#fef7e0', label: 'Menunggu Keuangan' };
+  }
+  return { color: '#1a73e8', soft: '#e8f0fe', label: 'Update SKBDN' };
+}
+
+function buildNotificationEmail({ title, message }) {
+  const safeTitle = escapeHtml(title || 'Notifikasi SKBDN');
+  const safeMessage = escapeHtml(message || 'Ada pembaruan dokumen SKBDN.');
+  const accent = getEmailAccent(title);
+  const appUrl = 'https://skbdn.vercel.app/';
+
+  return `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${safeTitle}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#202124;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:34px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #dce3ee;border-radius:16px;overflow:hidden;box-shadow:0 18px 48px rgba(32,33,36,0.10);">
+            <tr>
+              <td style="height:5px;background:${accent.color};font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:30px 34px 24px;border-bottom:1px solid #edf1f7;">
+                <div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6b778c;">SKBDN</div>
+                <div style="margin-top:10px;font-size:26px;line-height:1.25;font-weight:800;color:#1f2937;">${safeTitle}</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:28px 34px 10px;">
+                <div style="display:inline-block;padding:7px 12px;border-radius:999px;background:${accent.soft};color:${accent.color};font-size:12px;font-weight:800;">
+                  ${accent.label}
+                </div>
+                <p style="margin:18px 0 0;font-size:15px;line-height:1.75;color:#344054;">${safeMessage}</p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 34px 8px;">
+                <table role="presentation" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="border-radius:10px;background:#1a73e8;">
+                      <a href="${appUrl}" target="_blank" style="display:inline-block;padding:13px 18px;font-size:14px;font-weight:800;color:#ffffff;text-decoration:none;border-radius:10px;">
+                        Buka Dashboard SKBDN
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:22px 34px 30px;">
+                <div style="border:1px solid #e8edf5;border-radius:14px;background:#fbfcff;padding:17px 18px;">
+                  <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#8a97aa;">Akses Sistem</div>
+                  <div style="margin-top:9px;font-size:14px;line-height:1.65;color:#44546a;">
+                    Gunakan link berikut untuk melihat detail dokumen, status approval, dan catatan terbaru.
+                  </div>
+                  <a href="${appUrl}" target="_blank" style="display:block;margin-top:8px;font-size:13px;font-weight:700;color:#1a73e8;text-decoration:none;word-break:break-all;">${appUrl}</a>
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:20px 34px;background:#f8fafd;border-top:1px solid #edf1f7;">
+                <div style="font-size:12px;line-height:1.6;color:#6b778c;">
+                  Email otomatis dari <strong style="color:#202124;">SKBDN Digital Approval Workspace</strong>.<br>
+                  Mohon tidak membalas email ini.
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 app.post('/api/notifications/email', emailLimiter, async (req, res) => {
@@ -88,7 +242,7 @@ app.post('/api/notifications/email', emailLimiter, async (req, res) => {
     });
   }
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const from = process.env.SMTP_FROM || process.env.SENDER_ADDRESS || process.env.SMTP_USER || process.env.SMTP_ACCOUNT_USERNAME;
   const safeTitle = title || subject || 'Notifikasi SKBDN';
   const safeMessage = message || 'Ada pembaruan dokumen SKBDN.';
 
@@ -97,19 +251,22 @@ app.post('/api/notifications/email', emailLimiter, async (req, res) => {
       from,
       to: validRecipients.join(','),
       subject: subject || safeTitle,
-      text: `${safeTitle}\n\n${safeMessage}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124">
-          <h2 style="margin:0 0 12px;color:#1a73e8">${safeTitle}</h2>
-          <p style="margin:0 0 16px">${safeMessage}</p>
-          <p style="margin:0;color:#64748b;font-size:12px">Email otomatis dari SKBDN Digital Approval Workspace.</p>
-        </div>
-      `,
+      text: `${safeTitle}\n\n${safeMessage}\n\nBuka Dashboard SKBDN:\nhttps://skbdn.vercel.app/`,
+      html: buildNotificationEmail({ title: safeTitle, message: safeMessage }),
     });
     res.json({ ok: true });
   } catch (error) {
     console.error('[Email Notification] Failed to send email:', error);
-    res.status(500).json({ error: 'Failed to send email notification.' });
+    const isBadGmailCredential = error?.code === 'EAUTH' || error?.responseCode === 535;
+    res.status(500).json({
+      error: 'Failed to send email notification.',
+      message: isBadGmailCredential
+        ? 'Login SMTP Gmail ditolak. Gunakan Gmail App Password 16 digit, bukan password login Gmail biasa.'
+        : error?.message || 'SMTP server rejected the email request.',
+      code: error?.code,
+      command: error?.command,
+      responseCode: error?.responseCode
+    });
   }
 });
 
@@ -379,6 +536,56 @@ app.post('/api-proxy', async (req, res) => {
     console.error(`[Node Proxy] Error proxying request for ${apiClient.name}`);
     console.error(error)
     res.status(500).json({ error: error });
+  }
+});
+
+app.delete('/api/buyers/:uid', async (req, res) => {
+  if (!isFirebaseAdminReady) {
+    return res.status(503).json({
+      error: 'Firebase Admin is not configured.',
+      message: 'Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS in backend/.env.local to delete users from Firebase Auth.'
+    });
+  }
+
+  const { uid } = req.params;
+  if (!uid) {
+    return res.status(400).json({ error: 'Buyer uid is required.' });
+  }
+
+  try {
+    const authHeader = req.headers.authorization || '';
+    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!idToken) {
+      return res.status(401).json({ error: 'Firebase ID token is required.' });
+    }
+
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const requesterSnapshot = await admin.database().ref(`users/${decodedToken.uid}`).get();
+    const requesterRole = String(requesterSnapshot.val()?.role || '').trim().toLowerCase();
+    if (requesterRole !== 'admin') {
+      return res.status(403).json({ error: 'Only AP2 admin can delete Buyer accounts.' });
+    }
+
+    const userSnapshot = await admin.database().ref(`users/${uid}`).get();
+    const userData = userSnapshot.val();
+    const role = String(userData?.role || '').trim().toLowerCase();
+    if (role !== 'buyer') {
+      return res.status(403).json({ error: 'Only Buyer accounts can be deleted from this endpoint.' });
+    }
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      if (error?.code !== 'auth/user-not-found') throw error;
+    }
+    await admin.database().ref(`users/${uid}`).remove();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Buyer Delete] Failed to delete buyer:', error);
+    res.status(500).json({
+      error: 'Failed to delete buyer account.',
+      message: error?.message || 'Firebase Admin rejected the delete request.'
+    });
   }
 });
 

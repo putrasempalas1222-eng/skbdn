@@ -7,6 +7,7 @@ interface SkbnTableProps {
   onSelect: (skbn: Skbn) => void;
   selectedId?: string;
   currentRole: UserRole;
+  onViewDetail: (skbn: Skbn) => void;
   onApproveClick: (skbn: Skbn) => void;
   onSendFinalClick: (skbn: Skbn) => void;
 }
@@ -16,6 +17,7 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
   onSelect,
   selectedId,
   currentRole,
+  onViewDetail,
   onApproveClick,
   onSendFinalClick
 }) => {
@@ -53,19 +55,74 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
   };
 
   const handleDownloadPdf = (base64Data: string, fileName: string) => {
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'application/pdf' });
+    const blob = createPdfBlob(base64Data);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName || 'dokumen.pdf';
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleViewPdf = (base64Data: string) => {
+    const blob = createPdfBlob(base64Data);
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const createPdfBlob = (base64Data: string) => {
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: 'application/pdf' });
+  };
+
+  const isFinalStage = (skbn: Skbn) => skbn.status.includes('Final');
+
+  const getDraftPdf = (skbn: Skbn) => {
+    if (isFinalStage(skbn) && !skbn.final_pdf_data) return null;
+    return skbn.pdf_data ? { name: skbn.pdf_name || 'draft-skbdn.pdf', data: skbn.pdf_data } : null;
+  };
+
+  const getFinalPdf = (skbn: Skbn) => {
+    if (skbn.final_pdf_data) return { name: skbn.final_pdf_name || 'final-skbdn.pdf', data: skbn.final_pdf_data };
+    if (isFinalStage(skbn) && skbn.pdf_data) return { name: skbn.pdf_name || 'final-skbdn.pdf', data: skbn.pdf_data };
+    return null;
+  };
+
+  const getRejectionPdf = (skbn: Skbn) => {
+    return skbn.rejection_pdf_data
+      ? { name: skbn.rejection_pdf_name || 'tolakan-skbdn.pdf', data: skbn.rejection_pdf_data }
+      : null;
+  };
+
+  const renderPdfActions = (pdf: { name: string; data: string } | null, emptyLabel: string) => {
+    if (!pdf) {
+      return <span className="text-xs text-slate-400 italic">{emptyLabel}</span>;
+    }
+
+    return (
+      <div className="flex flex-wrap gap-2 min-w-36">
+        <button
+          onClick={() => handleViewPdf(pdf.data)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-[#1a73e8] dark:bg-blue-950 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900"
+        >
+          <i className="fa-solid fa-eye"></i>
+          <span>Lihat</span>
+        </button>
+        <button
+          onClick={() => handleDownloadPdf(pdf.data, pdf.name)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900"
+        >
+          <i className="fa-solid fa-file-arrow-down"></i>
+          <span>Unduh</span>
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -81,8 +138,9 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
             <tr className="bg-slate-100/50 dark:bg-slate-950/50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
               <th className="p-4">Nomor SKBDN</th>
               <th className="p-4">Tanggal</th>
-              <th className="p-4">Nama File</th>
-              <th className="p-4">File PDF</th>
+              <th className="p-4">File Draft</th>
+              <th className="p-4">File Final</th>
+              <th className="p-4">File Tolakan</th>
               <th className="p-4">Status</th>
               <th className="p-4 text-right">Aksi</th>
             </tr>
@@ -90,7 +148,7 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
             {skbns.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-500">
+                <td colSpan={7} className="p-8 text-center text-slate-500">
                   Tidak ada dokumen SKBDN ditemukan.
                 </td>
               </tr>
@@ -98,6 +156,9 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
               skbns.map((skbn) => {
                 const isSelected = selectedId === skbn.id;
                 const isActionable = canAction(skbn);
+                const draftPdf = getDraftPdf(skbn);
+                const finalPdf = getFinalPdf(skbn);
+                const rejectionPdf = getRejectionPdf(skbn);
 
                 return (
                   <tr 
@@ -111,40 +172,28 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                     <td className="p-4 text-sm text-slate-600 dark:text-slate-400">
                       {skbn.tanggal}
                     </td>
-                    <td className="p-4 text-sm text-slate-600 dark:text-slate-400 min-w-40">
-                      {skbn.vendor}
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      {renderPdfActions(draftPdf, 'Belum ada draft')}
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-col gap-1.5">
-                        {skbn.pdf_data ? (
-                          <button 
-                            onClick={() => handleDownloadPdf(skbn.pdf_data!, skbn.pdf_name || 'skbn.pdf')}
-                            className="flex items-center gap-1.5 text-xs font-semibold text-[#1a73e8] dark:text-blue-300 hover:underline"
-                          >
-                            <i className="fa-solid fa-file-arrow-down text-rose-500 text-sm"></i>
-                            <span>Unduh PDF</span>
-                          </button>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">No PDF (Dummy)</span>
-                        )}
-                        
-                        {skbn.rejection_pdf_data && (
-                          <button 
-                            onClick={() => handleDownloadPdf(skbn.rejection_pdf_data!, skbn.rejection_pdf_name || 'rejection.pdf')}
-                            className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline"
-                          >
-                            <i className="fa-solid fa-file-circle-exclamation text-rose-500 text-sm"></i>
-                            <span>Unduh PDF Tolakan</span>
-                          </button>
-                        )}
-                      </div>
+                      {renderPdfActions(finalPdf, 'Belum ada final')}
+                    </td>
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      {renderPdfActions(rejectionPdf, 'Belum ada tolakan')}
                     </td>
                     <td className="p-4">
                       {getStatusBadge(skbn.status)}
                     </td>
                     <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      {isActionable && (
-                        <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => onViewDetail(skbn)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all"
+                        >
+                          <i className="fa-solid fa-up-right-from-square mr-1"></i> View Lengkap
+                        </button>
+                        {isActionable && (
+                          <>
                           {(currentRole === UserRole.AP2 || currentRole === UserRole.KEUANGAN) && (
                             <button
                               onClick={() => onApproveClick(skbn)}
@@ -170,11 +219,9 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                               {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Revisi Draft'}
                             </button>
                           )}
-                        </div>
-                      )}
-                      {!isActionable && (
-                        <span className="text-xs text-slate-400 italic">No Action</span>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -192,7 +239,10 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
         ) : (
           skbns.map((skbn) => {
             const isSelected = selectedId === skbn.id;
-            const isActionable = canAction(skbn);
+                const isActionable = canAction(skbn);
+                const draftPdf = getDraftPdf(skbn);
+                const finalPdf = getFinalPdf(skbn);
+                const rejectionPdf = getRejectionPdf(skbn);
 
             return (
               <article
@@ -214,38 +264,67 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                     <p className="mt-0.5 text-slate-700 dark:text-slate-300">{skbn.tanggal}</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="font-bold uppercase text-slate-400">Nama File</p>
-                    <p className="mt-0.5 text-slate-700 dark:text-slate-300 break-words">{skbn.vendor}</p>
+                    <p className="font-bold uppercase text-slate-400">File Draft</p>
+                    <p className="mt-0.5 text-slate-700 dark:text-slate-300 break-words">{draftPdf ? 'Tersedia' : '-'}</p>
                   </div>
                 </div>
 
+                <div className="text-xs">
+                  <p className="font-bold uppercase text-slate-400">File Final</p>
+                  <p className="mt-0.5 text-slate-700 dark:text-slate-300 break-words">{finalPdf ? 'Tersedia' : '-'}</p>
+                </div>
+
+                <div className="text-xs">
+                  <p className="font-bold uppercase text-slate-400">File Tolakan</p>
+                  <p className="mt-0.5 text-slate-700 dark:text-slate-300 break-words">{rejectionPdf ? 'Tersedia' : '-'}</p>
+                </div>
+
                 <div className="flex flex-wrap gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
-                  {skbn.pdf_data ? (
+                  {draftPdf ? (
                     <button
-                      onClick={() => handleDownloadPdf(skbn.pdf_data!, skbn.pdf_name || 'skbn.pdf')}
+                      onClick={() => handleViewPdf(draftPdf.data)}
                       className="min-h-9 px-3 rounded-lg bg-blue-50 text-[#1a73e8] dark:bg-blue-950 dark:text-blue-300 text-xs font-bold flex items-center gap-1.5"
                     >
-                      <i className="fa-solid fa-file-arrow-down text-rose-500"></i>
-                      <span>Unduh PDF</span>
+                      <i className="fa-solid fa-eye"></i>
+                      <span>Lihat Draft</span>
                     </button>
                   ) : (
-                    <span className="min-h-9 px-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-400 flex items-center">No PDF</span>
+                    <span className="min-h-9 px-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-400 flex items-center">Draft kosong</span>
                   )}
 
-                  {skbn.rejection_pdf_data && (
+                  {finalPdf ? (
                     <button
-                      onClick={() => handleDownloadPdf(skbn.rejection_pdf_data!, skbn.rejection_pdf_name || 'rejection.pdf')}
+                      onClick={() => handleViewPdf(finalPdf.data)}
+                      className="min-h-9 px-3 rounded-lg bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300 text-xs font-bold flex items-center gap-1.5"
+                    >
+                      <i className="fa-solid fa-eye"></i>
+                      <span>Lihat Final</span>
+                    </button>
+                  ) : (
+                    <span className="min-h-9 px-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-400 flex items-center">Final kosong</span>
+                  )}
+
+                  {rejectionPdf && (
+                    <button
+                      onClick={() => handleViewPdf(rejectionPdf.data)}
                       className="min-h-9 px-3 rounded-lg bg-red-50 text-[#ea4335] dark:bg-red-950 dark:text-red-300 text-xs font-bold flex items-center gap-1.5"
                     >
-                      <i className="fa-solid fa-file-circle-exclamation"></i>
-                      <span>PDF Tolakan</span>
+                      <i className="fa-solid fa-eye"></i>
+                      <span>Lihat Tolakan</span>
                     </button>
                   )}
                 </div>
 
                 <div className="pt-1" onClick={(e) => e.stopPropagation()}>
-                  {isActionable ? (
-                    <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => onViewDetail(skbn)}
+                      className="min-h-10 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all"
+                    >
+                      <i className="fa-solid fa-up-right-from-square mr-1"></i> View Lengkap
+                    </button>
+                    {isActionable && (
+                      <>
                       {(currentRole === UserRole.AP2 || currentRole === UserRole.KEUANGAN) && (
                         <button
                           onClick={() => onApproveClick(skbn)}
@@ -271,10 +350,9 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                           {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Revisi Draft'}
                         </button>
                       )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">Tidak ada aksi</span>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </article>
             );

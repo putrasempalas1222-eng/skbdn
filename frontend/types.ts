@@ -24,6 +24,7 @@ export interface User {
   role: UserRole;
   email?: string;
   phone?: string;
+  email_verified?: boolean;
 }
 
 export interface DatabaseUser {
@@ -48,11 +49,20 @@ export interface Skbn {
   buyer_email?: string;
   vendor: string;
   nilai?: number;
+  barang_tonase_harga?: string;
+  total_harga?: string;
+  nomor_kontrak?: string;
+  negara_asal?: string;
+  bank?: string;
+  date_of_issue?: string;
+  expired_date?: string;
   keterangan: string;
   status: SkbnStatus;
   created_at: string;
   pdf_name?: string;
   pdf_data?: string; // Base64 encoded PDF string
+  final_pdf_name?: string;
+  final_pdf_data?: string; // Base64 encoded final PDF string
   rejection_pdf_name?: string;
   rejection_pdf_data?: string; // Base64 encoded PDF string
   rejection_reason?: string;
@@ -75,11 +85,15 @@ export interface NotificationItem {
   id: string;
   recipient_role: UserRole;
   recipient_user_id?: string;
+  recipient_emails?: string[];
   skbn_id?: string;
   title: string;
   message: string;
   created_at: string;
   read_at?: string;
+  email_status?: 'pending' | 'sent' | 'failed' | 'skipped';
+  email_sent_at?: string;
+  email_error?: string;
 }
 
 export interface ToastMessage {

@@ -21,14 +21,49 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submitLockRef = useRef(false);
 
-  // Automatically generated metadata preview state
-  const [generatedData, setGeneratedData] = useState<{
+  const defaultDocumentNumber = `SKBDN/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(1000 + Math.random() * 9000)}`;
+  const [formData, setFormData] = useState<{
     nomor_skbn: string;
     tanggal: string;
     buyer: string;
     vendor: string;
+    barang_tonase_harga: string;
+    total_harga: string;
+    nomor_kontrak: string;
+    negara_asal: string;
+    bank: string;
+    date_of_issue: string;
+    expired_date: string;
     keterangan: string;
-  } | null>(null);
+  }>({
+    nomor_skbn: initialData?.nomor_skbn || defaultDocumentNumber,
+    tanggal: initialData?.tanggal || new Date().toISOString().split('T')[0],
+    buyer: buyerName,
+    vendor: initialData?.vendor || '',
+    barang_tonase_harga: initialData?.barang_tonase_harga || '',
+    total_harga: initialData?.total_harga || '',
+    nomor_kontrak: initialData?.nomor_kontrak || '',
+    negara_asal: initialData?.negara_asal || '',
+    bank: initialData?.bank || '',
+    date_of_issue: initialData?.date_of_issue || '',
+    expired_date: initialData?.expired_date || '',
+    keterangan: initialData?.keterangan || ''
+  });
+
+  const setDocumentField = (field: keyof typeof formData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const isMetadataComplete = Boolean(
+    formData.nomor_skbn.trim() &&
+    formData.barang_tonase_harga.trim() &&
+    formData.total_harga.trim() &&
+    formData.nomor_kontrak.trim() &&
+    formData.negara_asal.trim() &&
+    formData.bank.trim() &&
+    formData.date_of_issue &&
+    formData.expired_date
+  );
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -57,16 +92,13 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
 
       const fileNameOnly = file.name.replace(/\.[^/.]+$/, "");
 
-      // Auto-generate metadata instantly
-      setGeneratedData({
-        nomor_skbn: initialData?.nomor_skbn || `SKBDN/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(1000 + Math.random() * 9000)}`,
-        tanggal: initialData?.tanggal || new Date().toISOString().split('T')[0],
-        buyer: buyerName,
+      setFormData(prev => ({
+        ...prev,
         vendor: fileNameOnly || file.name,
         keterangan: isFinalUpload
           ? `Dokumen final SKBDN diunggah dari file: ${file.name}`
           : `Dokumen SKBDN resmi diunggah dari file: ${file.name}`
-      });
+      }));
 
     } catch (error) {
       console.error('Gagal memproses PDF:', error);
@@ -99,17 +131,24 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!generatedData || !pdfBase64 || isProcessing || submitLockRef.current) return;
+    if (!isMetadataComplete || !pdfBase64 || isProcessing || submitLockRef.current) return;
 
     submitLockRef.current = true;
     setIsSubmitting(true);
     try {
       await onSubmit({
-        nomor_skbn: generatedData.nomor_skbn,
-        tanggal: generatedData.tanggal,
-        buyer: generatedData.buyer,
-        vendor: generatedData.vendor,
-        keterangan: generatedData.keterangan,
+        nomor_skbn: formData.nomor_skbn.trim(),
+        tanggal: formData.tanggal,
+        buyer: formData.buyer,
+        vendor: formData.vendor || pdfFile?.name?.replace(/\.[^/.]+$/, "") || 'Dokumen SKBDN',
+        barang_tonase_harga: formData.barang_tonase_harga.trim(),
+        total_harga: formData.total_harga.trim(),
+        nomor_kontrak: formData.nomor_kontrak.trim(),
+        negara_asal: formData.negara_asal.trim(),
+        bank: formData.bank.trim(),
+        date_of_issue: formData.date_of_issue,
+        expired_date: formData.expired_date,
+        keterangan: formData.keterangan || `Dokumen SKBDN diunggah dari file: ${pdfFile?.name || 'dokumen.pdf'}`,
         status: initialData ? initialData.status : SkbnStatus.DRAFT_CREATED,
         pdf_name: pdfFile?.name || 'dokumen.pdf',
         pdf_data: pdfBase64
@@ -137,6 +176,113 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="p-4 sm:p-5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/30 space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <i className="fa-solid fa-clipboard-list text-[#1a73e8]"></i>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">Data SKBDN</h4>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Nomor SKBDN</span>
+              <input
+                type="text"
+                required
+                disabled={isSubmitting}
+                value={formData.nomor_skbn}
+                onChange={(e) => setDocumentField('nomor_skbn', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Nomor Kontrak</span>
+              <input
+                type="text"
+                required
+                disabled={isSubmitting}
+                value={formData.nomor_kontrak}
+                onChange={(e) => setDocumentField('nomor_kontrak', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+
+            <label className="sm:col-span-2 space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Jenis Barang, Tonase dan Harga per Tonase</span>
+              <textarea
+                required
+                disabled={isSubmitting}
+                value={formData.barang_tonase_harga}
+                onChange={(e) => setDocumentField('barang_tonase_harga', e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none resize-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                placeholder="Contoh: Batubara, 5.000 MT, Rp 1.200.000/MT"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Harga</span>
+              <input
+                type="text"
+                required
+                disabled={isSubmitting}
+                value={formData.total_harga}
+                onChange={(e) => setDocumentField('total_harga', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                placeholder="Contoh: Rp 6.000.000.000"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Negara Asal</span>
+              <input
+                type="text"
+                required
+                disabled={isSubmitting}
+                value={formData.negara_asal}
+                onChange={(e) => setDocumentField('negara_asal', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Bank</span>
+              <input
+                type="text"
+                required
+                disabled={isSubmitting}
+                value={formData.bank}
+                onChange={(e) => setDocumentField('bank', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Date Of Issue</span>
+              <input
+                type="date"
+                required
+                disabled={isSubmitting}
+                value={formData.date_of_issue}
+                onChange={(e) => setDocumentField('date_of_issue', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Expired Date</span>
+              <input
+                type="date"
+                required
+                disabled={isSubmitting}
+                value={formData.expired_date}
+                onChange={(e) => setDocumentField('expired_date', e.target.value)}
+                className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              />
+            </label>
+          </div>
+        </div>
+
         {/* Drag and Drop Area */}
         <div 
           onDragEnter={handleDrag}
@@ -187,8 +333,7 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
           )}
         </div>
 
-        {/* Generated Metadata Preview (Read-Only) */}
-        {generatedData && (
+        {pdfFile && (
           <div className="p-5 rounded-lg border border-blue-200 bg-blue-50/70 dark:bg-blue-950/20 dark:border-blue-900 space-y-4 animate-fade-in">
             <div className="flex items-center gap-2 border-b border-blue-200 dark:border-blue-900 pb-2">
               <i className="fa-solid fa-circle-info text-[#1a73e8]"></i>
@@ -198,19 +343,19 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Nomor SKBDN</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">{generatedData.nomor_skbn}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">{formData.nomor_skbn}</span>
               </div>
               <div>
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Tanggal</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{generatedData.tanggal}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">{formData.tanggal}</span>
               </div>
               <div>
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Nama File</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">{generatedData.vendor}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">{formData.vendor}</span>
               </div>
               <div className="sm:col-span-2">
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Keterangan</span>
-                <p className="text-slate-600 dark:text-slate-400 text-xs mt-0.5 leading-relaxed">{generatedData.keterangan}</p>
+                <p className="text-slate-600 dark:text-slate-400 text-xs mt-0.5 leading-relaxed">{formData.keterangan}</p>
               </div>
             </div>
           </div>
@@ -227,7 +372,7 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
           </button>
           <button 
             type="submit"
-            disabled={!generatedData || isProcessing || isSubmitting}
+            disabled={!isMetadataComplete || !pdfBase64 || isProcessing || isSubmitting}
             className="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-[#1a73e8] hover:bg-blue-700 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isSubmitting && <i className="fa-solid fa-spinner animate-spin"></i>}

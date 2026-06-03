@@ -1,6 +1,6 @@
 /*  */
-import { initializeApp } from "firebase/app";
-import { get, getDatabase, ref, set, onValue, update } from "firebase/database";
+import { FirebaseApp, initializeApp } from "firebase/app";
+import { get, getDatabase, ref, remove, set, onValue, update } from "firebase/database";
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -30,12 +30,16 @@ const firebaseConfig = {
 let app;
 let db: any = null;
 let auth: ReturnType<typeof getAuth> | null = null;
+let secondaryApp: FirebaseApp | null = null;
+let secondaryAuth: ReturnType<typeof getAuth> | null = null;
 let isFirebaseConnected = false;
 
 try {
   app = initializeApp(firebaseConfig);
+  secondaryApp = initializeApp(firebaseConfig, "secondary-buyer-registration");
   db = getDatabase(app);
   auth = getAuth(app);
+  secondaryAuth = getAuth(secondaryApp);
   isFirebaseConnected = true;
 } catch (error) {
   console.warn("Firebase failed to initialize, falling back to LocalStorage:", error);
@@ -125,6 +129,35 @@ export const getNotifications = (callback: (data: NotificationItem[]) => void) =
 const fallbackLocalNotifications = (callback: (data: NotificationItem[]) => void) => {
   const local = localStorage.getItem("notification_data");
   callback(local ? JSON.parse(local) : []);
+};
+
+export const cleanupReadNotifications = async (retentionDays = 7): Promise<void> => {
+  const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+
+  if (isFirebaseConnected && db) {
+    try {
+      const snapshot = await get(ref(db, 'notifications'));
+      const data = snapshot.val() || {};
+      await Promise.all(
+        Object.keys(data)
+          .filter((id) => {
+            const readAt = data[id]?.read_at;
+            return readAt && new Date(readAt).getTime() <= cutoffTime;
+          })
+          .map((id) => remove(ref(db, `notifications/${id}`)))
+      );
+      return;
+    } catch (error) {
+      console.warn("Firebase cleanup notification failed, cleaning local storage:", error);
+    }
+  }
+
+  const local = localStorage.getItem("notification_data");
+  const list: NotificationItem[] = local ? JSON.parse(local) : [];
+  localStorage.setItem(
+    "notification_data",
+    JSON.stringify(list.filter(item => !item.read_at || new Date(item.read_at).getTime() > cutoffTime))
+  );
 };
 
 export const getUsers = (callback: (data: DatabaseUser[]) => void) => {
@@ -283,6 +316,34 @@ export const markNotificationRead = async (notificationId: string): Promise<void
   );
 };
 
+export const updateNotificationEmailStatus = async (
+  notificationId: string,
+  status: NonNullable<NotificationItem['email_status']>,
+  errorMessage?: string
+): Promise<void> => {
+  const updateData = removeUndefined({
+    email_status: status,
+    email_sent_at: status === 'sent' ? new Date().toISOString() : undefined,
+    email_error: errorMessage
+  });
+
+  if (isFirebaseConnected && db) {
+    try {
+      await update(ref(db, `notifications/${notificationId}`), updateData);
+      return;
+    } catch (error) {
+      console.warn("Firebase update email status failed, updating notification locally:", error);
+    }
+  }
+
+  const local = localStorage.getItem("notification_data");
+  const list: NotificationItem[] = local ? JSON.parse(local) : [];
+  localStorage.setItem(
+    "notification_data",
+    JSON.stringify(list.map(item => item.id === notificationId ? { ...item, ...updateData } : item))
+  );
+};
+
 export const loginBuyerWithEmail = async (email: string, password: string): Promise<FirebaseUser> => {
   if (!auth) throw new Error("Firebase Auth belum tersedia.");
   const credential = await signInWithEmailAndPassword(auth, email, password);
@@ -295,6 +356,17 @@ export const getBuyerVerifiedPhone = async (uid: string): Promise<string | null>
   return snapshot.val() || null;
 };
 
+export const getBuyerEmailOtpVerified = async (uid: string): Promise<boolean> => {
+  if (!db) return false;
+  const snapshot = await get(ref(db, `users/${uid}/email_otp_verified_at`));
+  return Boolean(snapshot.val());
+};
+
+export const saveBuyerEmailOtpVerified = async (uid: string): Promise<void> => {
+  if (!db) throw new Error("Firebase database belum tersedia.");
+  await set(ref(db, `users/${uid}/email_otp_verified_at`), new Date().toISOString());
+};
+
 export const getDatabaseUser = async (uid: string): Promise<DatabaseUser | null> => {
   if (!db) return null;
   const snapshot = await get(ref(db, `users/${uid}`));
@@ -303,8 +375,8 @@ export const getDatabaseUser = async (uid: string): Promise<DatabaseUser | null>
 };
 
 export const registerBuyerWithEmail = async (nama: string, email: string, password: string): Promise<FirebaseUser> => {
-  if (!auth || !db) throw new Error("Firebase belum tersedia.");
-  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  if (!secondaryAuth || !db) throw new Error("Firebase belum tersedia.");
+  const credential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
   await updateProfile(credential.user, { displayName: nama });
   await set(ref(db, `users/${credential.user.uid}`), {
     id: credential.user.uid,
@@ -313,6 +385,7 @@ export const registerBuyerWithEmail = async (nama: string, email: string, passwo
     role: UserRole.BUYER,
     created_at: new Date().toISOString()
   });
+  await signOut(secondaryAuth);
   return credential.user;
 };
 
