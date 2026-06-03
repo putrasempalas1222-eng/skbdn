@@ -305,6 +305,17 @@ const App: React.FC = () => {
     return `${authForm.countryCode}${localNumber}`;
   };
 
+  const resetPhoneVerifier = () => {
+    try {
+      phoneVerifierRef.current?.clear();
+    } catch (error) {
+      console.warn('Gagal membersihkan reCAPTCHA lama:', error);
+    }
+    phoneVerifierRef.current = null;
+    const recaptchaContainer = document.getElementById('firebase-phone-recaptcha');
+    if (recaptchaContainer) recaptchaContainer.innerHTML = '';
+  };
+
   const handleSendPhoneOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isOtpSubmitting) return;
@@ -322,8 +333,9 @@ const App: React.FC = () => {
 
     setIsOtpSubmitting(true);
     try {
-      phoneVerifierRef.current?.clear();
+      resetPhoneVerifier();
       phoneVerifierRef.current = createFirebasePhoneVerifier('firebase-phone-recaptcha');
+      await phoneVerifierRef.current.render();
       const verificationId = await sendBuyerPhoneOtp(normalizePhoneNumber(), phoneVerifierRef.current);
       setPhoneVerificationId(verificationId);
       setIsOtpSent(true);
@@ -332,9 +344,9 @@ const App: React.FC = () => {
       showToast('success', 'OTP Dikirim', 'Kode OTP sudah dikirim.');
     } catch (error) {
       const errorCode = (error as { code?: string })?.code;
+      const errorMessage = (error as { message?: string })?.message;
       console.error('Gagal mengirim OTP Firebase:', error);
-      phoneVerifierRef.current?.clear();
-      phoneVerifierRef.current = null;
+      resetPhoneVerifier();
       if (errorCode === 'auth/invalid-phone-number') {
         showToast('error', 'Nomor Tidak Valid', `Firebase menolak format nomor ${normalizePhoneNumber()}.`);
       } else if (errorCode === 'auth/operation-not-allowed') {
@@ -343,8 +355,10 @@ const App: React.FC = () => {
         showToast('error', 'reCAPTCHA Bermasalah', 'Tambahkan domain localhost/app ke Authorized domains Firebase.');
       } else if (errorCode === 'auth/quota-exceeded' || errorCode === 'auth/too-many-requests') {
         showToast('error', 'Limit OTP Tercapai', 'Terlalu banyak request OTP. Coba lagi nanti atau gunakan nomor test Firebase.');
+      } else if (errorMessage?.toLowerCase().includes('recaptcha')) {
+        showToast('error', 'reCAPTCHA Bermasalah', 'Refresh halaman, lalu pastikan localhost sudah masuk Authorized domains Firebase.');
       } else {
-        showToast('error', 'OTP Gagal Dikirim', `Firebase menolak request (${errorCode || 'unknown'}).`);
+        showToast('error', 'OTP Gagal Dikirim', errorMessage || 'Firebase menolak request OTP. Cek console browser untuk detail.');
       }
     } finally {
       setIsOtpSubmitting(false);
