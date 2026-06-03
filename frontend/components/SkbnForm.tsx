@@ -231,7 +231,7 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
             className="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-[#1a73e8] hover:bg-blue-700 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isSubmitting && <i className="fa-solid fa-spinner animate-spin"></i>}
-            <span>{isSubmitting ? 'Mengirim PDF...' : isFinalUpload ? 'Kirim Final ke AP2' : 'Kirim ke AP2'}</span>
+            <span>{isSubmitting ? 'Mengirim PDF...' : isFinalUpload ? 'Kirim Final' : 'Kirim'}</span>
           </button>
         </div>
       </form>
