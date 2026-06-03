@@ -686,7 +686,7 @@ const App: React.FC = () => {
     } catch (error) {
       const rawMessage = (error as { message?: string })?.message || '';
       const errorMessage = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
-        ? 'Backend API lokal belum jalan. Jalankan backend di port 5000 lalu coba lagi.'
+        ? 'API email belum bisa diakses. Di lokal jalankan backend port 5000, di Vercel pastikan env SMTP sudah dipasang.'
         : rawMessage || 'Email notification failed.';
       console.warn('Gagal mengirim email notifikasi:', error);
       const now = Date.now();
