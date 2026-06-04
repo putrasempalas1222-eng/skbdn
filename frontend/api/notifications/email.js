@@ -8,13 +8,13 @@ const escapeHtml = (value = '') => String(value)
   .replace(/'/g, '&#039;');
 
 const getMailTransporter = () => {
-  const host = process.env.SMTP_HOST || process.env.SMTP_SERVER_HOST;
+  const host = process.env.SMTP_HOST || process.env.SMTP_SERVER_HOST || 'smtp.gmail.com';
   const port = Number(process.env.SMTP_PORT || process.env.SMTP_SERVER_PORT || 587);
   const user = process.env.SMTP_USER || process.env.SMTP_ACCOUNT_USERNAME;
   const pass = process.env.SMTP_PASS || process.env.SMTP_ACCOUNT_PASSWORD;
   const securityMode = (process.env.SMTP_SECURE || process.env.SMTP_SECURITY_MODE || '').toLowerCase();
 
-  if (!host || !user || !pass) return null;
+  if (!user || !pass) return null;
 
   return nodemailer.createTransport({
     host,
@@ -104,11 +104,11 @@ export default async function handler(req, res) {
   if (!transporter) {
     return res.status(503).json({
       error: 'SMTP is not configured.',
-      message: 'Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in Vercel Environment Variables.'
+      message: 'Set SMTP_USER and SMTP_PASS in Vercel Environment Variables, then redeploy.'
     });
   }
 
-  const from = process.env.SMTP_FROM || process.env.SENDER_ADDRESS || process.env.SMTP_USER || process.env.SMTP_ACCOUNT_USERNAME;
+  const from = process.env.SMTP_FROM || process.env.SENDER_ADDRESS || `SKBDN NOTIFIKASI <${process.env.SMTP_USER || process.env.SMTP_ACCOUNT_USERNAME}>`;
   const safeTitle = title || subject || 'Notifikasi SKBDN';
   const safeMessage = message || 'Ada pembaruan dokumen SKBDN.';
 

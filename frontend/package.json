@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase-admin": "^13.10.0",
     "firebase": "latest",
     "nodemailer": "^8.0.10",
     "react": "latest",
