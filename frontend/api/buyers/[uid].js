@@ -1,5 +1,9 @@
 import admin from 'firebase-admin';
 
+export const config = {
+  maxDuration: 10,
+};
+
 const databaseURL = process.env.FIREBASE_DATABASE_URL || 'https://play-integrity-2adpr7x4a8xhyex-default-rtdb.firebaseio.com';
 
 const getServiceAccount = () => {
