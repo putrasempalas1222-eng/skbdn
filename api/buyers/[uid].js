@@ -1,4 +1,4 @@
-import admin from 'firebase-admin';
+const admin = require('firebase-admin');
 
 const databaseURL = process.env.FIREBASE_DATABASE_URL || 'https://play-integrity-2adpr7x4a8xhyex-default-rtdb.firebaseio.com';
 
@@ -49,7 +49,7 @@ const getFirebaseAdmin = () => {
   });
 };
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'DELETE') {
     return res.status(405).json({ error: 'Method not allowed.' });
   }
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
   if (!app) {
     return res.status(503).json({
       error: 'Firebase Admin is not configured.',
-      message: 'Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_BASE64 in Vercel Environment Variables, then redeploy.'
+      message: 'Set FIREBASE_SERVICE_ACCOUNT_BASE64 in Vercel Environment Variables, then redeploy.'
     });
   }
 
@@ -108,4 +108,4 @@ export default async function handler(req, res) {
       message: error?.message || 'Firebase Admin rejected the delete request.'
     });
   }
-}
+};
