@@ -144,8 +144,10 @@ const App: React.FC = () => {
   const [emailOtpCode, setEmailOtpCode] = useState('');
   const [emailOtpExpiresAt, setEmailOtpExpiresAt] = useState(0);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [buyerAccountForm, setBuyerAccountForm] = useState({ nama: '', email: '', password: '' });
   const [isBuyerAccountSubmitting, setIsBuyerAccountSubmitting] = useState(false);
+  const [showBuyerAccountPassword, setShowBuyerAccountPassword] = useState(false);
   const [deletingBuyerId, setDeletingBuyerId] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [isOtpSubmitting, setIsOtpSubmitting] = useState(false);
@@ -1349,14 +1351,25 @@ const App: React.FC = () => {
                 {!isReset && (
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  value={authForm.password}
-                  onChange={(e) => setAuthField('password', e.target.value)}
-                  disabled={isFormSubmitting}
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-[#1a73e8]/25 focus:border-[#1a73e8] disabled:opacity-70"
-                  placeholder="Masukkan password"
-                />
+                <div className="relative">
+                  <input
+                    type={showAuthPassword ? 'text' : 'password'}
+                    value={authForm.password}
+                    onChange={(e) => setAuthField('password', e.target.value)}
+                    disabled={isFormSubmitting}
+                    className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-[#1a73e8]/25 focus:border-[#1a73e8] disabled:opacity-70"
+                    placeholder="Masukkan password"
+                  />
+                  <button
+                    type="button"
+                    disabled={isFormSubmitting}
+                    onClick={() => setShowAuthPassword(prev => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg text-slate-400 hover:text-[#1a73e8] hover:bg-blue-50 dark:hover:bg-blue-950 disabled:opacity-50"
+                    aria-label={showAuthPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  >
+                    <i className={`fa-solid ${showAuthPassword ? 'fa-eye-slash' : 'fa-eye'} text-sm`}></i>
+                  </button>
+                </div>
               </div>
                 )}
               </>
@@ -2203,14 +2216,25 @@ const App: React.FC = () => {
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                       Password Awal
                     </label>
-                    <input
-                      type="password"
-                      value={buyerAccountForm.password}
-                      onChange={(e) => setBuyerAccountForm(prev => ({ ...prev, password: e.target.value }))}
-                      disabled={isBuyerAccountSubmitting}
-                      className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-[#1a73e8]/25 focus:border-[#1a73e8] disabled:opacity-70"
-                      placeholder="Minimal 6 karakter"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showBuyerAccountPassword ? 'text' : 'password'}
+                        value={buyerAccountForm.password}
+                        onChange={(e) => setBuyerAccountForm(prev => ({ ...prev, password: e.target.value }))}
+                        disabled={isBuyerAccountSubmitting}
+                        className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-[#1a73e8]/25 focus:border-[#1a73e8] disabled:opacity-70"
+                        placeholder="Minimal 6 karakter"
+                      />
+                      <button
+                        type="button"
+                        disabled={isBuyerAccountSubmitting}
+                        onClick={() => setShowBuyerAccountPassword(prev => !prev)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg text-slate-400 hover:text-[#1a73e8] hover:bg-blue-50 dark:hover:bg-blue-950 disabled:opacity-50"
+                        aria-label={showBuyerAccountPassword ? 'Sembunyikan password' : 'Lihat password'}
+                      >
+                        <i className={`fa-solid ${showBuyerAccountPassword ? 'fa-eye-slash' : 'fa-eye'} text-sm`}></i>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-4">
