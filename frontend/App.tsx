@@ -1223,6 +1223,39 @@ const App: React.FC = () => {
       return bTime - aTime;
     });
   const unreadNotificationCount = currentNotifications.filter(notification => !notification.read_at).length;
+  const homeRecentSkbns = sortedVisibleSkbns.slice(0, 3);
+  const homeQuickActions = [
+    {
+      title: 'Lihat Dokumen',
+      text: 'Pantau draft, final, dan status terbaru.',
+      icon: 'fa-table-list',
+      tone: 'blue',
+      isVisible: true,
+      onClick: () => {
+        setActiveTab('dashboard');
+        setEditingSkbn(null);
+      }
+    },
+    {
+      title: currentRole === UserRole.AP2 ? 'Upload untuk Buyer' : 'Unggah SKBDN',
+      text: currentRole === UserRole.AP2 ? 'Buat dokumen SKBDN untuk akun Buyer.' : 'Kirim draft atau revisi dokumen.',
+      icon: 'fa-file-arrow-up',
+      tone: 'green',
+      isVisible: currentRole === UserRole.BUYER || currentRole === UserRole.AP2,
+      onClick: () => {
+        setActiveTab('create');
+        setEditingSkbn(null);
+      }
+    },
+    {
+      title: currentRole === UserRole.AP2 ? 'Daftar Buyer' : 'Buka Riwayat',
+      text: currentRole === UserRole.AP2 ? 'Kelola akun Buyer yang terdaftar.' : 'Lihat perjalanan approval dokumen.',
+      icon: currentRole === UserRole.AP2 ? 'fa-users' : 'fa-clock-rotate-left',
+      tone: 'yellow',
+      isVisible: true,
+      onClick: () => setActiveTab(currentRole === UserRole.AP2 ? 'buyer-list' : 'history')
+    }
+  ];
 
   const handleNotificationClick = async (notification: NotificationItem) => {
     if (notification.id.startsWith('pending-') && !notification.read_at) {
@@ -1971,6 +2004,92 @@ const App: React.FC = () => {
                 </div>
               </section>
 
+              <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-4">
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 mb-5">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-[#202124] dark:text-white">Aksi Cepat</h3>
+                      <p className="text-sm text-slate-500 mt-1">Shortcut sesuai role aktif Anda.</p>
+                    </div>
+                    <span className="hidden sm:inline-flex px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-extrabold text-slate-500">
+                      {currentRole}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {homeQuickActions.filter(action => action.isVisible).map((action) => {
+                      const toneClass = action.tone === 'green'
+                        ? 'text-[#34a853] bg-green-50 dark:bg-green-950'
+                        : action.tone === 'yellow'
+                          ? 'text-amber-600 bg-yellow-50 dark:bg-yellow-950'
+                          : 'text-[#1a73e8] bg-blue-50 dark:bg-blue-950';
+                      return (
+                        <button
+                          key={action.title}
+                          type="button"
+                          onClick={action.onClick}
+                          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-[#f8fafd] dark:bg-slate-950 p-4 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/60 dark:hover:shadow-black/20 transition-all"
+                        >
+                          <span className={`w-10 h-10 rounded-xl ${toneClass} flex items-center justify-center mb-4`}>
+                            <i className={`fa-solid ${action.icon}`}></i>
+                          </span>
+                          <span className="block text-sm font-extrabold text-slate-900 dark:text-white">{action.title}</span>
+                          <span className="mt-1 block text-xs leading-relaxed text-slate-500">{action.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 mb-5">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-[#202124] dark:text-white">Dokumen Terbaru</h3>
+                      <p className="text-sm text-slate-500 mt-1">Update terakhir yang bisa Anda akses.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('dashboard')}
+                      className="text-xs font-extrabold text-[#1a73e8] hover:text-blue-700"
+                    >
+                      Lihat semua
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {homeRecentSkbns.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-5 text-center">
+                        <p className="text-sm font-semibold text-slate-500">Belum ada dokumen terbaru.</p>
+                      </div>
+                    ) : (
+                      homeRecentSkbns.map((skbn) => (
+                        <button
+                          key={skbn.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSkbn(skbn);
+                            setActiveTab('dashboard');
+                          }}
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-[#f8fafd] dark:bg-slate-950 p-4 text-left hover:border-blue-200 dark:hover:border-blue-900 transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-extrabold text-slate-900 dark:text-white break-words">{skbn.nomor_skbn}</p>
+                              <p className="mt-1 text-xs font-semibold text-slate-500 break-words">{skbn.buyer || 'Buyer'}</p>
+                            </div>
+                            <span className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-extrabold ${skbn.status.includes('Rejected') ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300' : skbn.status.includes('Verified') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-blue-50 text-[#1a73e8] dark:bg-blue-950 dark:text-blue-300'}`}>
+                              {skbn.status}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-[11px] font-semibold text-slate-400">
+                            {new Date(skbn.created_at || skbn.tanggal).toLocaleString('id-ID')}
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </section>
+
               <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {[
                   {
@@ -2016,18 +2135,20 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pt-5">
+                <div className="relative grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pt-5">
+                  <div className="hidden xl:block absolute left-10 right-10 top-10 h-px bg-gradient-to-r from-[#1a73e8] via-[#34a853] to-[#fbbc04]"></div>
                   {[
-                    ['1', 'Buyer upload draft', 'Dokumen SKBDN masuk ke antrean AP2.'],
-                    ['2', 'AP2 review', 'Dokumen disetujui atau dikembalikan dengan catatan.'],
-                    ['3', 'Keuangan verifikasi', 'Draft atau final dicek oleh tim Keuangan.'],
-                    ['4', 'Final selesai', 'Buyer dapat melihat status akhir dan riwayat lengkap.']
-                  ].map(([number, title, text]) => (
-                    <div key={number} className="rounded-xl bg-[#f8fafd] dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4">
-                      <div className="w-8 h-8 rounded-full bg-[#1a73e8] text-white flex items-center justify-center text-sm font-extrabold mb-3">
-                        {number}
+                    ['1', 'Buyer upload draft', 'Dokumen SKBDN masuk ke antrean AP2.', 'fa-file-arrow-up', 'bg-[#1a73e8]'],
+                    ['2', 'AP2 review', 'Dokumen disetujui atau dikembalikan dengan catatan.', 'fa-user-check', 'bg-[#34a853]'],
+                    ['3', 'Keuangan verifikasi', 'Draft atau final dicek oleh tim Keuangan.', 'fa-building-columns', 'bg-[#fbbc04] text-slate-900'],
+                    ['4', 'Final selesai', 'Buyer dapat melihat status akhir dan riwayat lengkap.', 'fa-circle-check', 'bg-[#ea4335]']
+                  ].map(([number, title, text, icon, color]) => (
+                    <div key={number} className="relative rounded-xl bg-[#f8fafd] dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 hover:-translate-y-0.5 transition-all">
+                      <div className={`relative z-10 w-10 h-10 rounded-xl ${color} text-white flex items-center justify-center text-sm font-extrabold mb-3 shadow-lg shadow-slate-200/70 dark:shadow-black/20`}>
+                        <i className={`fa-solid ${icon}`}></i>
                       </div>
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">{title}</h4>
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Langkah {number}</span>
+                      <h4 className="mt-1 font-bold text-sm text-slate-900 dark:text-white">{title}</h4>
                       <p className="mt-1 text-xs leading-relaxed text-slate-500">{text}</p>
                     </div>
                   ))}
