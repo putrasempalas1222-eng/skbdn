@@ -88,6 +88,49 @@
     .glow-buyer-active { animation: glow-buyer 2s infinite; }
     .glow-ap2-active { animation: glow-ap2 2s infinite; }
     .glow-keuangan-active { animation: glow-keuangan 2s infinite; }
+    @keyframes skbdn-splash-rise {
+      from { opacity: 0; transform: translateY(14px); filter: blur(8px); }
+      to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+    @keyframes skbdn-splash-dot {
+      0%, 80%, 100% { transform: translateY(0) scale(0.78); opacity: 0.55; }
+      40% { transform: translateY(-12px) scale(1); opacity: 1; }
+    }
+    @keyframes skbdn-splash-bar {
+      0% { transform: translateX(-100%); }
+      50% { transform: translateX(0); }
+      100% { transform: translateX(100%); }
+    }
+    @keyframes skbdn-title-shimmer {
+      0% { background-position: 180% center; }
+      100% { background-position: -180% center; }
+    }
+    .skbdn-splash-rise { animation: skbdn-splash-rise 700ms cubic-bezier(.2,.9,.2,1) both; }
+    .skbdn-splash-dot { animation: skbdn-splash-dot 1200ms ease-in-out infinite; }
+    .skbdn-splash-bar { animation: skbdn-splash-bar 1600ms ease-in-out infinite; }
+    .skbdn-title-shimmer {
+      color: transparent;
+      background: linear-gradient(90deg, #202124 0%, #202124 30%, #1a73e8 45%, #ea4335 53%, #fbbc04 61%, #34a853 69%, #202124 84%, #202124 100%);
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      animation: skbdn-title-shimmer 2200ms ease-in-out infinite;
+    }
+    .dark .skbdn-title-shimmer {
+      background: linear-gradient(90deg, #ffffff 0%, #ffffff 30%, #1a73e8 45%, #ea4335 53%, #fbbc04 61%, #34a853 69%, #ffffff 84%, #ffffff 100%);
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skbdn-splash-rise,
+      .skbdn-splash-dot,
+      .skbdn-splash-bar,
+      .skbdn-title-shimmer {
+        animation-duration: 1ms;
+        animation-iteration-count: 1;
+      }
+    }
   </style>
   <!-- Import Map -->
   </head>

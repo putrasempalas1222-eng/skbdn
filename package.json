@@ -6,6 +6,10 @@
     "dev-backend": "npm run dev --prefix backend",
     "dev": "concurrently \"npm run dev-frontend\" \"npm run dev-backend\""
   },
+  "dependencies": {
+    "firebase-admin": "^13.10.0",
+    "nodemailer": "^8.0.10"
+  },
   "devDependencies": {
     "concurrently": "latest"
   }

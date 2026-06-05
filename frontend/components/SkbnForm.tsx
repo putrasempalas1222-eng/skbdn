@@ -2,6 +2,8 @@
 import React, { useState, useRef } from 'react';
 import { Skbn, SkbnStatus } from '../types';
 
+const MAX_PDF_FILE_SIZE = 5 * 1024 * 1024;
+
 interface SkbnFormProps {
   onSubmit: (data: Omit<Skbn, 'id' | 'created_at'>) => void | Promise<void>;
   onCancel: () => void;
@@ -81,6 +83,12 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
     if (isProcessing || isSubmitting) return;
     if (file.type !== 'application/pdf') {
       alert('Hanya file PDF yang diperbolehkan!');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (file.size > MAX_PDF_FILE_SIZE) {
+      alert('Ukuran file PDF maksimal 5 MB. Silakan pilih file yang lebih kecil.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
     setPdfFile(file);
@@ -329,6 +337,7 @@ export const SkbnForm: React.FC<SkbnFormProps> = ({ onSubmit, onCancel, initialD
               <p className="text-xs text-slate-400">
                 {isFinalUpload ? 'Unggah dokumen final untuk dikirim kembali ke AP2' : 'Sistem akan otomatis membuat draf dokumen SKBDN dari file Anda'}
               </p>
+              <p className="text-xs font-semibold text-slate-400">Maksimal ukuran file 5 MB</p>
             </div>
           )}
         </div>

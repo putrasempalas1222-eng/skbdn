@@ -31,6 +31,17 @@ const AUTH_USERS_KEY = 'skbn_auth_users';
 const CURRENT_USER_KEY = 'skbn_current_user';
 const READ_PENDING_NOTIFICATIONS_KEY = 'skbn_read_pending_notifications';
 const EMAIL_OTP_TTL_MS = 5 * 60 * 1000;
+const DELETE_BUYER_TIMEOUT_MS = 15_000;
+const MAX_PDF_FILE_SIZE = 5 * 1024 * 1024;
+type DateFilter = 'all' | 'today' | '30d';
+
+const fetchWithTimeout = (url: string, options: RequestInit = {}, timeoutMs = 15_000) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timeoutId);
+  });
+};
 
 const DEFAULT_USERS: AuthUser[] = [
   { id: 'user-ap2', nama: 'Admin AP2', role: UserRole.AP2, username: 'admin', password: 'admin123' },
@@ -104,12 +115,18 @@ const App: React.FC = () => {
   const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.BUYER);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isSplashVisible, setIsSplashVisible] = useState(true);
   const [activeTab, setActiveTab] = useState<'home' | 'dashboard' | 'create' | 'buyer-register' | 'buyer-list' | 'history'>('home');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [databaseUsers, setDatabaseUsers] = useState<DatabaseUser[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [ap2UploadBuyerId, setAp2UploadBuyerId] = useState('');
+  const [buyerAccountSearch, setBuyerAccountSearch] = useState('');
+  const [documentSearch, setDocumentSearch] = useState('');
+  const [documentDateFilter, setDocumentDateFilter] = useState<DateFilter>('all');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFilter, setHistoryDateFilter] = useState<DateFilter>('all');
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [readPendingNotificationIds, setReadPendingNotificationIds] = useState<string[]>([]);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
@@ -356,12 +373,16 @@ const App: React.FC = () => {
         throw new Error('Login AP2 harus memakai akun Firebase agar bisa menghapus akun Buyer dari Auth.');
       }
 
-      const response = await fetch(`/api/buyers/${buyer.id}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${idToken}`
-        }
-      });
+      const response = await fetchWithTimeout(
+        `/api/buyers/${buyer.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${idToken}`
+          }
+        },
+        DELETE_BUYER_TIMEOUT_MS
+      );
       const responseText = await response.text();
       let data: { message?: string; error?: string } | null = null;
       try {
@@ -378,10 +399,13 @@ const App: React.FC = () => {
       showToast('success', 'Buyer Dihapus', `${buyerName} sudah dihapus dari Auth dan database.`);
     } catch (error) {
       const message = (error as { message?: string })?.message || '';
+      const isTimeout = (error as { name?: string })?.name === 'AbortError';
       showToast(
         'error',
         'Gagal Menghapus Buyer',
-        message.includes('Failed to fetch') || message.includes('NetworkError')
+        isTimeout
+          ? 'Request hapus terlalu lama. Pastikan env Firebase Admin di Vercel sudah benar lalu redeploy.'
+          : message.includes('Failed to fetch') || message.includes('NetworkError')
           ? 'Backend belum jalan di port 5000. Jalankan backend dulu lalu coba lagi.'
           : message || 'Backend menolak penghapusan akun.'
       );
@@ -582,6 +606,14 @@ const App: React.FC = () => {
     return () => window.clearInterval(cleanupTimer);
   }, []);
 
+  useEffect(() => {
+    const splashTimer = window.setTimeout(() => {
+      setIsSplashVisible(false);
+    }, 1800);
+
+    return () => window.clearTimeout(splashTimer);
+  }, []);
+
   // Dark Mode Toggle
   useEffect(() => {
     if (isDarkMode) {
@@ -648,6 +680,16 @@ const App: React.FC = () => {
       const aTime = new Date((a as DatabaseUser & { created_at?: string }).created_at || '').getTime() || 0;
       return bTime - aTime;
     });
+  const buyerAccountSearchTerm = buyerAccountSearch.trim().toLowerCase();
+  const filteredBuyerAccounts = buyerAccounts.filter((buyer) => {
+    if (!buyerAccountSearchTerm) return true;
+    return [
+      buyer.nama,
+      buyer.email,
+      buyer.username,
+      buyer.id
+    ].some(value => (value || '').toLowerCase().includes(buyerAccountSearchTerm));
+  });
   const selectedAp2UploadBuyer = buyerAccounts.find(user => user.id === ap2UploadBuyerId) || null;
 
   useEffect(() => {
@@ -742,7 +784,13 @@ const App: React.FC = () => {
       return;
     }
 
-    const documentOwner = targetBuyer
+    const documentOwner = editingSkbn
+      ? {
+          id: editingSkbn.buyer_id || currentUser.id,
+          nama: editingSkbn.buyer || currentUser.nama,
+          email: editingSkbn.buyer_email || currentUser.email
+        }
+      : targetBuyer
       ? {
           id: targetBuyer.id,
           nama: targetBuyer.nama || targetBuyer.email || 'Buyer',
@@ -787,11 +835,14 @@ const App: React.FC = () => {
       });
 
       const isFinalUpload = nextStatus === SkbnStatus.FINAL_SENT;
+      const isAp2UploadForBuyer = currentRole === UserRole.AP2 && Boolean(editingSkbn || targetBuyer);
       await createNotification(
         UserRole.AP2,
         isFinalUpload ? 'Final SKBDN Masuk' : 'Permintaan SKBDN Baru',
         isFinalUpload
-          ? `Buyer mengirim final ${formData.nomor_skbn}. Mohon review AP2.`
+          ? isAp2UploadForBuyer
+            ? `AP2 mengunggah final ${formData.nomor_skbn} untuk ${documentOwner.nama}.`
+            : `Buyer mengirim final ${formData.nomor_skbn}. Mohon review AP2.`
           : targetBuyer
             ? `AP2 mengunggah draft ${formData.nomor_skbn} untuk ${documentOwner.nama}.`
             : `Buyer mengunggah draft ${formData.nomor_skbn}. Mohon review AP2.`,
@@ -809,11 +860,24 @@ const App: React.FC = () => {
         );
       }
 
+      if (isFinalUpload && currentRole === UserRole.AP2 && editingSkbn?.buyer_id) {
+        await createNotification(
+          UserRole.BUYER,
+          'Final SKBDN Diunggah AP2',
+          `AP2 mengunggah final ${formData.nomor_skbn} untuk akun Anda. Dokumen menunggu review AP2.`,
+          id,
+          editingSkbn.buyer_id,
+          documentOwner.email
+        );
+      }
+
       showToast(
         'success', 
         isFinalUpload ? 'Final SKBDN Dikirim' : editingSkbn ? 'SKBDN Direvisi' : 'Draft SKBDN Dibuat',
         isFinalUpload
-          ? `Final ${formData.nomor_skbn} berhasil dikirim ke AP2.`
+          ? currentRole === UserRole.AP2
+            ? `Final ${formData.nomor_skbn} berhasil diunggah untuk ${documentOwner.nama}.`
+            : `Final ${formData.nomor_skbn} berhasil dikirim ke AP2.`
           : targetBuyer
             ? `Dokumen ${formData.nomor_skbn} berhasil dibuat untuk ${documentOwner.nama}.`
             : `Dokumen ${formData.nomor_skbn} berhasil dikirim ke AP2.`
@@ -838,6 +902,12 @@ const App: React.FC = () => {
     if (file) {
       if (file.type !== 'application/pdf') {
         alert('Hanya file PDF yang diperbolehkan!');
+        if (rejectionFileInputRef.current) rejectionFileInputRef.current.value = '';
+        return;
+      }
+      if (file.size > MAX_PDF_FILE_SIZE) {
+        alert('Ukuran file PDF maksimal 5 MB. Silakan pilih file yang lebih kecil.');
+        if (rejectionFileInputRef.current) rejectionFileInputRef.current.value = '';
         return;
       }
       setRejectionFile(file);
@@ -974,6 +1044,30 @@ const App: React.FC = () => {
     const aTime = new Date(a.created_at || a.tanggal).getTime();
     return bTime - aTime;
   });
+  const matchesDateFilter = (timeValue: string | number | undefined, filter: DateFilter) => {
+    if (filter === 'all') return true;
+    const time = typeof timeValue === 'number' ? timeValue : new Date(timeValue || '').getTime();
+    if (!Number.isFinite(time)) return false;
+
+    const date = new Date(time);
+    const now = new Date();
+    if (filter === 'today') {
+      return date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate();
+    }
+
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    return time >= thirtyDaysAgo.getTime();
+  };
+  const documentSearchTerm = documentSearch.trim().toLowerCase();
+  const filteredVisibleSkbns = sortedVisibleSkbns.filter(skbn => {
+    const matchesSearch = !documentSearchTerm || skbn.nomor_skbn.toLowerCase().includes(documentSearchTerm);
+    const matchesDate = matchesDateFilter(skbn.created_at || skbn.tanggal, documentDateFilter);
+    return matchesSearch && matchesDate;
+  });
   const visibleSkbnIds = visibleSkbns.map(skbn => skbn.id);
   const visibleApprovals = (currentRole === UserRole.BUYER
     ? approvals.filter(approval => visibleSkbnIds.includes(approval.skbn_id))
@@ -995,6 +1089,12 @@ const App: React.FC = () => {
       return { skbn, approvals: documentApprovals, latestTime };
     })
     .sort((a, b) => b.latestTime - a.latestTime);
+  const historySearchTerm = historySearch.trim().toLowerCase();
+  const filteredHistoryDocuments = historyDocuments.filter(({ skbn, latestTime }) => {
+    const matchesSearch = !historySearchTerm || skbn.nomor_skbn.toLowerCase().includes(historySearchTerm);
+    const matchesDate = matchesDateFilter(latestTime, historyDateFilter);
+    return matchesSearch && matchesDate;
+  });
 
   const getHistorySteps = (skbn: Skbn, documentApprovals: Approval[]) => {
     const steps = [
@@ -1367,6 +1467,30 @@ const App: React.FC = () => {
     );
   };
 
+  const renderSplashScreen = () => (
+    <div className="fixed inset-0 z-[9999] overflow-hidden bg-[#f8fafd] dark:bg-slate-950 flex items-center justify-center px-6">
+      <div className="absolute inset-0">
+        <div className="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-100/60 dark:bg-blue-950/30 blur-3xl"></div>
+        </div>
+
+      <div className="relative skbdn-splash-rise w-full max-w-sm text-center">
+        <div className="space-y-5">
+          <h1 className="skbdn-title-shimmer text-5xl sm:text-6xl font-black tracking-tight">SKBDN</h1>
+          <div className="flex items-center justify-center gap-3" aria-label="Loading SKBDN">
+            <span className="h-3 w-3 rounded-full bg-[#1a73e8] skbdn-splash-dot"></span>
+            <span className="h-3 w-3 rounded-full bg-[#ea4335] skbdn-splash-dot" style={{ animationDelay: '120ms' }}></span>
+            <span className="h-3 w-3 rounded-full bg-[#fbbc04] skbdn-splash-dot" style={{ animationDelay: '240ms' }}></span>
+            <span className="h-3 w-3 rounded-full bg-[#34a853] skbdn-splash-dot" style={{ animationDelay: '360ms' }}></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (isSplashVisible) {
+    return renderSplashScreen();
+  }
+
   if (!currentUser) {
     return (
       <>
@@ -1444,16 +1568,18 @@ const App: React.FC = () => {
               </button>
             )}
 
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
-            >
-              <span className={`absolute left-0 top-2 bottom-2 w-1 rounded-full transition-opacity ${activeTab === 'history' ? 'bg-[#fbbc04] opacity-100' : 'opacity-0'}`}></span>
-              <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
-                <i className="fa-solid fa-clock-rotate-left text-sm"></i>
-              </span>
-              <span>Riwayat</span>
-            </button>
+            {currentRole !== UserRole.AP2 && (
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+              >
+                <span className={`absolute left-0 top-2 bottom-2 w-1 rounded-full transition-opacity ${activeTab === 'history' ? 'bg-[#fbbc04] opacity-100' : 'opacity-0'}`}></span>
+                <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
+                  <i className="fa-solid fa-clock-rotate-left text-sm"></i>
+                </span>
+                <span>Riwayat</span>
+              </button>
+            )}
 
             {currentRole === UserRole.AP2 && (
               <>
@@ -1476,6 +1602,16 @@ const App: React.FC = () => {
                     <i className="fa-solid fa-users text-sm"></i>
                   </span>
                   <span>Daftar Buyer</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                >
+                  <span className={`absolute left-0 top-2 bottom-2 w-1 rounded-full transition-opacity ${activeTab === 'history' ? 'bg-[#fbbc04] opacity-100' : 'opacity-0'}`}></span>
+                  <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
+                    <i className="fa-solid fa-clock-rotate-left text-sm"></i>
+                  </span>
+                  <span>Riwayat</span>
                 </button>
               </>
             )}
@@ -1583,15 +1719,17 @@ const App: React.FC = () => {
                   </button>
                 )}
 
-                <button
-                  onClick={() => { setActiveTab('history'); setIsMobileNavOpen(false); }}
-                  className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
-                >
-                  <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
-                    <i className="fa-solid fa-clock-rotate-left text-sm"></i>
-                  </span>
-                  <span>Riwayat</span>
-                </button>
+                {currentRole !== UserRole.AP2 && (
+                  <button
+                    onClick={() => { setActiveTab('history'); setIsMobileNavOpen(false); }}
+                    className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                  >
+                    <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
+                      <i className="fa-solid fa-clock-rotate-left text-sm"></i>
+                    </span>
+                    <span>Riwayat</span>
+                  </button>
+                )}
 
                 {currentRole === UserRole.AP2 && (
                   <>
@@ -1612,6 +1750,15 @@ const App: React.FC = () => {
                         <i className="fa-solid fa-users text-sm"></i>
                       </span>
                       <span>Daftar Buyer</span>
+                    </button>
+                    <button
+                      onClick={() => { setActiveTab('history'); setIsMobileNavOpen(false); }}
+                      className={`group relative w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'history' ? 'bg-slate-100 text-[#202124] dark:bg-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                    >
+                      <span className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${activeTab === 'history' ? 'bg-white text-amber-600 shadow-sm dark:bg-slate-900' : 'bg-slate-50 text-slate-500 group-hover:text-amber-600 dark:bg-slate-800'}`}>
+                        <i className="fa-solid fa-clock-rotate-left text-sm"></i>
+                      </span>
+                      <span>Riwayat</span>
                     </button>
                   </>
                 )}
@@ -1881,9 +2028,54 @@ const App: React.FC = () => {
               {/* Statistics */}
               {currentRole !== UserRole.BUYER && <Stats skbns={sortedVisibleSkbns} />}
 
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                  <label className="flex-1 space-y-1.5">
+                    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Cari Nomor SKBDN</span>
+                    <div className="relative">
+                      <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i>
+                      <input
+                        type="search"
+                        value={documentSearch}
+                        onChange={(e) => setDocumentSearch(e.target.value)}
+                        placeholder="Contoh: SKBDN/2026/06"
+                        className="w-full min-h-11 pl-9 pr-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                      />
+                    </div>
+                  </label>
+                  <label className="w-full lg:w-56 space-y-1.5">
+                    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Filter Tanggal</span>
+                    <select
+                      value={documentDateFilter}
+                      onChange={(e) => setDocumentDateFilter(e.target.value as DateFilter)}
+                      className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                    >
+                      <option value="all">Semua dokumen</option>
+                      <option value="today">Hari ini</option>
+                      <option value="30d">30 hari terakhir</option>
+                    </select>
+                  </label>
+                  {(documentSearch || documentDateFilter !== 'all') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDocumentSearch('');
+                        setDocumentDateFilter('all');
+                      }}
+                      className="min-h-11 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold transition-all"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  Menampilkan {filteredVisibleSkbns.length} dari {sortedVisibleSkbns.length} dokumen.
+                </p>
+              </div>
+
               <div className="min-w-0">
                 <SkbnTable
-                  skbns={sortedVisibleSkbns}
+                  skbns={filteredVisibleSkbns}
                   onSelect={setSelectedSkbn}
                   selectedId={selectedSkbn?.id}
                   currentRole={currentRole}
@@ -1906,7 +2098,7 @@ const App: React.FC = () => {
 
           {activeTab === 'create' && (
             <div className="max-w-3xl mx-auto w-full space-y-4">
-              {currentRole === UserRole.AP2 && (
+              {currentRole === UserRole.AP2 && !editingSkbn && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5 shadow-sm">
                   <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                     <label className="flex-1 space-y-1.5">
@@ -1943,11 +2135,22 @@ const App: React.FC = () => {
                   </p>
                 </div>
               )}
+              {currentRole === UserRole.AP2 && editingSkbn && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5 shadow-sm">
+                  <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Upload untuk Buyer</span>
+                  <p className="mt-1 text-sm font-extrabold text-slate-800 dark:text-slate-100 break-words">
+                    {editingSkbn.buyer || editingSkbn.buyer_email || 'Buyer'}
+                  </p>
+                  {editingSkbn.buyer_email && (
+                    <p className="mt-0.5 text-xs text-slate-500 break-words">{editingSkbn.buyer_email}</p>
+                  )}
+                </div>
+              )}
               <SkbnForm 
                 onSubmit={handleSkbnSubmit}
                 onCancel={() => { setActiveTab('dashboard'); setEditingSkbn(null); }}
                 initialData={editingSkbn}
-                buyerName={currentRole === UserRole.AP2 ? (selectedAp2UploadBuyer?.nama || selectedAp2UploadBuyer?.email || 'Buyer') : currentUser.nama}
+                buyerName={editingSkbn?.buyer || (currentRole === UserRole.AP2 ? (selectedAp2UploadBuyer?.nama || selectedAp2UploadBuyer?.email || 'Buyer') : currentUser.nama)}
               />
             </div>
           )}
@@ -2044,6 +2247,33 @@ const App: React.FC = () => {
                       {buyerAccounts.length} Buyer
                     </span>
                   </div>
+                  <div className="mt-4 flex flex-col sm:flex-row sm:items-end gap-3">
+                    <label className="flex-1 space-y-1.5">
+                      <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Cari Akun Buyer</span>
+                      <div className="relative">
+                        <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i>
+                        <input
+                          type="search"
+                          value={buyerAccountSearch}
+                          onChange={(e) => setBuyerAccountSearch(e.target.value)}
+                          placeholder="Cari nama, email, username, atau ID"
+                          className="w-full min-h-11 pl-9 pr-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                        />
+                      </div>
+                    </label>
+                    {buyerAccountSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setBuyerAccountSearch('')}
+                        className="min-h-11 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold transition-all"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Menampilkan {filteredBuyerAccounts.length} dari {buyerAccounts.length} akun Buyer.
+                  </p>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -2058,14 +2288,14 @@ const App: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {buyerAccounts.length === 0 ? (
+                      {filteredBuyerAccounts.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="p-8 text-center text-slate-500">
-                            Belum ada akun Buyer.
+                            {buyerAccounts.length === 0 ? 'Belum ada akun Buyer.' : 'Tidak ada akun Buyer yang cocok.'}
                           </td>
                         </tr>
                       ) : (
-                        buyerAccounts.map((buyer) => {
+                        filteredBuyerAccounts.map((buyer) => {
                           const buyerMeta = buyer as DatabaseUser & { created_at?: string; email_otp_verified_at?: string };
                           return (
                             <tr key={buyer.id} className="hover:bg-slate-100/30 dark:hover:bg-slate-800/30">
@@ -2114,17 +2344,61 @@ const App: React.FC = () => {
 
           {activeTab === 'history' && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm overflow-hidden">
-              <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800">
-                <h3 className="text-lg font-bold text-[#202124] dark:text-slate-100">Riwayat Approval SKBDN</h3>
-                <p className="text-sm text-slate-500 mt-1">Satu dokumen SKBDN ditampilkan sebagai satu list. Buka untuk melihat perjalanan prosesnya.</p>
+              <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 space-y-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#202124] dark:text-slate-100">Riwayat Approval SKBDN</h3>
+                  <p className="text-sm text-slate-500 mt-1">Satu dokumen SKBDN ditampilkan sebagai satu list. Buka untuk melihat perjalanan prosesnya.</p>
+                </div>
+                <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                  <label className="flex-1 space-y-1.5">
+                    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Cari Nomor SKBDN</span>
+                    <div className="relative">
+                      <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i>
+                      <input
+                        type="search"
+                        value={historySearch}
+                        onChange={(e) => setHistorySearch(e.target.value)}
+                        placeholder="Ketik nomor SKBDN"
+                        className="w-full min-h-11 pl-9 pr-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                      />
+                    </div>
+                  </label>
+                  <label className="w-full lg:w-56 space-y-1.5">
+                    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Filter Update</span>
+                    <select
+                      value={historyDateFilter}
+                      onChange={(e) => setHistoryDateFilter(e.target.value as DateFilter)}
+                      className="w-full min-h-11 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                    >
+                      <option value="all">Semua riwayat</option>
+                      <option value="today">Hari ini</option>
+                      <option value="30d">30 hari terakhir</option>
+                    </select>
+                  </label>
+                  {(historySearch || historyDateFilter !== 'all') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistorySearch('');
+                        setHistoryDateFilter('all');
+                      }}
+                      className="min-h-11 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold transition-all"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Menampilkan {filteredHistoryDocuments.length} dari {historyDocuments.length} riwayat dokumen.
+                </p>
               </div>
               <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                {historyDocuments.length === 0 ? (
+                {filteredHistoryDocuments.length === 0 ? (
                   <div className="p-8 text-center text-slate-500">
-                    Belum ada dokumen SKBDN.
+                    Tidak ada riwayat dokumen yang cocok.
                   </div>
                 ) : (
-                  historyDocuments.map(({ skbn, approvals: documentApprovals }) => {
+                  filteredHistoryDocuments.map(({ skbn, approvals: documentApprovals }) => {
                     const isOpen = openHistorySkbnId === skbn.id;
                     const latestApproval = documentApprovals[documentApprovals.length - 1];
                     const steps = getHistorySteps(skbn, documentApprovals);
@@ -2405,6 +2679,7 @@ const App: React.FC = () => {
                     <div className="text-slate-500">
                       <i className="fa-solid fa-cloud-arrow-up mr-1.5"></i>
                       <span>Klik untuk mengunggah PDF Tolakan</span>
+                      <p className="mt-1 text-[11px] font-semibold">Maksimal ukuran file 5 MB</p>
                     </div>
                   )}
                 </div>

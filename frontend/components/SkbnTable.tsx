@@ -54,6 +54,13 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
     return false;
   };
 
+  const canUploadFinal = (skbn: Skbn) => {
+    if (currentRole !== UserRole.BUYER && currentRole !== UserRole.AP2) return false;
+    return skbn.status === SkbnStatus.DRAFT_VERIFIED ||
+      skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 ||
+      skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN;
+  };
+
   const handleDownloadPdf = (base64Data: string, fileName: string) => {
     const blob = createPdfBlob(base64Data);
     const url = URL.createObjectURL(blob);
@@ -156,6 +163,7 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
               skbns.map((skbn) => {
                 const isSelected = selectedId === skbn.id;
                 const isActionable = canAction(skbn);
+                const isFinalUploadAllowed = canUploadFinal(skbn);
                 const draftPdf = getDraftPdf(skbn);
                 const finalPdf = getFinalPdf(skbn);
                 const rejectionPdf = getRejectionPdf(skbn);
@@ -166,8 +174,13 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                     onClick={() => onSelect(skbn)}
                     className={`cursor-pointer transition-all hover:bg-blue-50/60 dark:hover:bg-slate-800/40 ${isSelected ? 'bg-blue-50 dark:bg-blue-950/30 border-l-4 border-l-[#1a73e8]' : ''}`}
                   >
-                    <td className="p-4 font-semibold text-sm text-slate-800 dark:text-slate-200 min-w-44">
-                      {skbn.nomor_skbn}
+                    <td className="p-4 min-w-44">
+                      <p className="font-semibold text-sm text-slate-800 dark:text-slate-200 break-words">
+                        {skbn.nomor_skbn}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400 break-words">
+                        {skbn.buyer || 'Buyer'}
+                      </p>
                     </td>
                     <td className="p-4 text-sm text-slate-600 dark:text-slate-400">
                       {skbn.tanggal}
@@ -192,25 +205,36 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                         >
                           <i className="fa-solid fa-up-right-from-square mr-1"></i> View Lengkap
                         </button>
-                        {isActionable && (
+                        {(isActionable || isFinalUploadAllowed) && (
                           <>
                           {(currentRole === UserRole.AP2 || currentRole === UserRole.KEUANGAN) && (
+                            isFinalUploadAllowed && currentRole === UserRole.AP2 ? (
+                              <button
+                                onClick={() => onSendFinalClick(skbn)}
+                                className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-500/10 transition-all"
+                              >
+                                <i className="fa-solid fa-file-arrow-up mr-1"></i>
+                                {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Upload Final'}
+                              </button>
+                            ) : (
                             <button
                               onClick={() => onApproveClick(skbn)}
                             className="px-3 py-1.5 rounded-lg bg-[#1a73e8] hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/10 transition-all"
                             >
                               <i className="fa-solid fa-gavel mr-1"></i> Proses
                             </button>
+                            )
                           )}
-                          {currentRole === UserRole.BUYER && skbn.status === SkbnStatus.DRAFT_VERIFIED && (
+                          {currentRole === UserRole.BUYER && isFinalUploadAllowed && (
                             <button
                               onClick={() => onSendFinalClick(skbn)}
                               className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-500/10 transition-all"
                             >
-                              <i className="fa-solid fa-file-arrow-up mr-1"></i> Upload Final
+                              <i className="fa-solid fa-file-arrow-up mr-1"></i>
+                              {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Upload Final'}
                             </button>
                           )}
-                          {currentRole === UserRole.BUYER && skbn.status.includes('Rejected') && (
+                          {currentRole === UserRole.BUYER && skbn.status.includes('Rejected') && !isFinalUploadAllowed && (
                             <button
                               onClick={() => onApproveClick(skbn)}
                               className="px-3 py-1.5 rounded-lg bg-[#fbbc04] hover:bg-amber-500 text-slate-900 text-xs font-bold shadow-md shadow-amber-500/10 transition-all"
@@ -240,6 +264,7 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
           skbns.map((skbn) => {
             const isSelected = selectedId === skbn.id;
                 const isActionable = canAction(skbn);
+                const isFinalUploadAllowed = canUploadFinal(skbn);
                 const draftPdf = getDraftPdf(skbn);
                 const finalPdf = getFinalPdf(skbn);
                 const rejectionPdf = getRejectionPdf(skbn);
@@ -254,6 +279,7 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                   <div className="min-w-0">
                     <p className="text-[10px] font-bold uppercase text-slate-400">Nomor SKBDN</p>
                     <h4 className="text-sm font-bold text-[#202124] dark:text-slate-100 break-words">{skbn.nomor_skbn}</h4>
+                    <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400 break-words">{skbn.buyer || 'Buyer'}</p>
                   </div>
                   <div className="shrink-0">{getStatusBadge(skbn.status)}</div>
                 </div>
@@ -323,25 +349,36 @@ export const SkbnTable: React.FC<SkbnTableProps> = ({
                     >
                       <i className="fa-solid fa-up-right-from-square mr-1"></i> View Lengkap
                     </button>
-                    {isActionable && (
+                    {(isActionable || isFinalUploadAllowed) && (
                       <>
                       {(currentRole === UserRole.AP2 || currentRole === UserRole.KEUANGAN) && (
+                        isFinalUploadAllowed && currentRole === UserRole.AP2 ? (
+                          <button
+                            onClick={() => onSendFinalClick(skbn)}
+                            className="min-h-10 px-4 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-500/10 transition-all"
+                          >
+                            <i className="fa-solid fa-file-arrow-up mr-1"></i>
+                            {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Upload Final'}
+                          </button>
+                        ) : (
                         <button
                           onClick={() => onApproveClick(skbn)}
                           className="min-h-10 px-4 rounded-lg bg-[#1a73e8] hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/10 transition-all"
                         >
                           <i className="fa-solid fa-gavel mr-1"></i> Proses
                         </button>
+                        )
                       )}
-                      {currentRole === UserRole.BUYER && skbn.status === SkbnStatus.DRAFT_VERIFIED && (
+                      {currentRole === UserRole.BUYER && isFinalUploadAllowed && (
                         <button
                           onClick={() => onSendFinalClick(skbn)}
                           className="min-h-10 px-4 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md shadow-violet-500/10 transition-all"
                         >
-                          <i className="fa-solid fa-file-arrow-up mr-1"></i> Upload Final
+                          <i className="fa-solid fa-file-arrow-up mr-1"></i>
+                          {skbn.status === SkbnStatus.FINAL_REJECTED_BY_AP2 || skbn.status === SkbnStatus.FINAL_REJECTED_BY_KEUANGAN ? 'Upload Ulang Final' : 'Upload Final'}
                         </button>
                       )}
-                      {currentRole === UserRole.BUYER && skbn.status.includes('Rejected') && (
+                      {currentRole === UserRole.BUYER && skbn.status.includes('Rejected') && !isFinalUploadAllowed && (
                         <button
                           onClick={() => onApproveClick(skbn)}
                           className="min-h-10 px-4 rounded-lg bg-[#fbbc04] hover:bg-amber-500 text-slate-900 text-xs font-bold shadow-md shadow-amber-500/10 transition-all"
